@@ -1,0 +1,520 @@
+
+\documentclass[10pt,journal,compsoc,float]{IEEEtran}
+
+\ifCLASSOPTIONcompsoc
+	\usepackage[nocompress]{cite}
+\else
+	\usepackage{cite}
+\fi
+\newcommand\MYhyperrefoptions{bookmarks=true,bookmarksnumbered=true,
+pdfpagemode={UseOutlines},plainpages=false,pdfpagelabels=true,
+colorlinks=true,linkcolor={black},citecolor={black},urlcolor={black},
+pdftitle={Distributed Hadoop Mapreduce Cluster on Android Devices},
+pdfsubject={CS560 Spring 2018},
+pdfauthor={Dustin McAfee and Alan Grant},
+pdfkeywords={IEEEtran, Hadoop, Mapreduce, Android, Chroot, Big Data}}
+
+\usepackage{float}
+\usepackage{pgfplots}
+\usepackage{amsmath}
+\newcommand{\dd}[1]{\mathrm{d}#1}
+\usepackage{tikz}
+\usepackage{indentfirst}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\lstset{basicstyle=\footnotesize\ttfamily,
+	showstringspaces=false,
+	commentstyle=\color{red},
+	keywordstyle=\color{blue},
+	columns=fullflexible,
+	linewidth=\columnwidth,
+	breaklines=true
+}
+\usetikzlibrary{
+	patterns,
+   	pgfplots.fillbetween,
+}
+
+\pgfplotsset{
+% by adding at least the `compat' level 1.11 the `fill between'
+% library works fine; also then you can omit `axis cs:' for the
+% node coordinates
+	compat=1.11,
+}
+
+\lstset{language=bash, deletekeywords={local}, escapeinside={(*@}{@*)}}
+
+\lstdefinelanguage{XML}
+{
+	morestring=[b]",
+	morestring=[s]{>}{<},
+	morecomment=[s]{<?}{?>},
+	stringstyle=\color{black},
+	identifierstyle=\color{blue},
+	keywordstyle=\color{cyan},
+	morekeywords={xmlns,version,type}% list your attributes here
+}
+
+\begin{document}
+\title{Distributed Hadoop Mapreduce Cluster on Android Devices}
+\author{Dustin McAfee and Alan Grant}
+
+\markboth{UTk CS560 Spring Term Paper May~2018}
+{Shell \MakeLowercase{\textit{et al.}}: Distributed Hadoop Mapreduce Cluster on Android Devices}
+
+\IEEEtitleabstractindextext{
+\begin{abstract}
+New Android mobile devices are becoming increasingly powerful with larger amounts of memory, with most equipped with quad or even octa-core processors. Hadoop Mapreduce is installed and optimized on top of a distributed cluster of Android devices. Utilizing a distributed system of Android mobile devices for processing of small data sets with Hadoop Mapreduce is shown as feasible. Example benchmark algorithms such as TestDFSIO and Terasort are used for measuring network IO and sorting run-times on a three node distributed cluster of two Android devices as slaves and a laptop device running Linux as the master node. These benchmarks are performed and compared for a few different configurations of the Hadoop cluster.
+\end{abstract}}
+
+\maketitle
+
+\IEEEdisplaynontitleabstractindextext
+\IEEEpeerreviewmaketitle
+
+\ifCLASSOPTIONcompsoc
+\IEEEraisesectionheading{\section{Introduction}\label{sec:introduction}}
+\else
+\section{Introduction}
+\label{sec:introduction}
+\fi
+Hadoop Mapreduce is one of the most popular algorithms for big data processing. Big data is termed here as a large number of data to be processed in a short period of time. Hadoop is a scalable, open source, fault-tolerant framework that allows for distributed processing of large data sets across clusters of computers using simple programming models. Mapreduce is the programming model used to process large data sets stored in Hadoop \cite{Mapreduce}. Porting Hadoop Mapreduce to the mobile Android platform could have hardware advantages, since the cost of Android hardware is generally low. Android applications use the filesystem directly, making it possible to manage files similar to that of a Unix system. An Android Hadoop cluster could also enable a mobile workforce instead of a desktop workforce.
+
+In order to port Hadoop to Android, a Linux image is installed and run inside of the Android operating system; this requires root privileges. Another requirement is Busybox, an open source package installed with root privileges which provide replacements for many GNU utilities, including chroot \cite{Busybox}. An application called Linux Deploy \cite{LinuxDeploy} from the Google Play Store is used to automatically install and configure the Linux image; it allows for custom configurations of Linux boot images and uses chroot to change root directory and boot Linux over Android by making a subprocess tree for a specific system. In this case chroot is used with an Ubuntu Xenial image to boot Ubuntu on top of the Android operating system.
+
+Open JDK 8 and Hadoop 2.7.5 are installed on a rooted Samsung Galaxy S7 running Android Nougat, a Hikey960 development board running AOSP 4.9, and a laptop running Ubuntu Xenial. Sample Mapreduce benchmarks are performed on the cluster and runtimes compared to different slave configurations. Different Hadoop cluster configurations are benchmarked and compared for efficiency in run-time for a data sort and efficiency in network IO throughput.
+
+\subsection{Related Work}
+\label{sec:relatedwork}
+Previous work most related with this project involves deploying an image of Linux over the Android operating system \cite{Bothe} \cite{Tambe}. While it is also possible to set up the appropriate environment manually in Android using BusyBox and chroot, a minimal installation of a Linux environment can be well optimized for running within an Android operating system \cite{LinuxDeploy}. The Linux image chosen for the Android nodes is Ubuntu Xenial 16.04, while the laptop master-node also runs Ubuntu Xenial 16.04. Unlike previous work, the Ubuntu image running within Android runs with an ssh server, but without a visual server, since the visual server is not necessary for the slave nodes.
+
+In Android, java classes can not be installed and executed directly from the command line. Instead, the application must always exist in an \textit{.apk} file. Running a Linux image inside of Android helps alleviate this issue. However, earlier work done with Hadoop version 0.19.0 extracted the java libraries, edited source code, and compiled them into \textit{.apk} files \cite{Marinelli}. This is not practical for our implementation, but certain configuration aspects were adopted from this, such as DFS block size reduction.
+
+\subsection{Installation}
+Hadoop 2.7.5, JDK8, and openSSH is installed on each machine. Hadoop is in the directory \textit{/usr/local/hadoop} and JDK8 is in the directory \textit{/usr/lib/jvm/default-java}. The slave hostnames are node1 for the Hikey960 and node2 for the Samsung Galaxy S7, and the master node hostname is node-master. The file \textit{/etc/hostname} for the master node is changed from localhost to node-master, and the slave nodes are kept localhost. The file \textit{/etc/hosts} is updated for each machine to have the ip address of node1, node2, and node-master. For each machine, an rsa key pair is generated and authorized for every other machine using the following command: 
+\begin{lstlisting}[language=bash, otherkeywords={$}]
+$ ssh-copy-id remote_username@remote_hostname
+\end{lstlisting}
+
+The environment must be set up as well, and so the following is added to the \textit{~/.bashrc} file:
+\begin{lstlisting}[language=bash, deletekeywords={local}]
+export JAVA_HOME=/usr/lib/jvm/default-java
+export HADOOP_CLASSPATH=$JAVA_HOME/lib/tools.jar
+export HADOOP_HOME=/usr/local/hadoop
+export HADOOP_INSTALL=/usr/local/hadoop
+export PATH=$PATH:$JAVA_HOME/bin
+export PATH=$PATH:$HADOOP_HOME/bin
+export PATH=$PATH:$HADOOP_HOME/sbin
+export HADOOP_MAPRED_HOME=$HADOOP_HOME
+export HADOOP_COMMON_HOME=$HADOOP_HOME
+export HADOOP_HDFS_HOME=$HADOOP_HOME
+export YARN_HOME=$HADOOP_HOME
+export HADOOP_COMMON_LIB_NATIVE_DIR=$HADOOP_HOME/lib/native
+export HADOOP_OPTS="-Djava.library.path=$HADOOP_HOME/lib"
+export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+\end{lstlisting}
+
+The \$JAVA\_HOME variable is reset when starting Hadoop, so the file \textit{\$HADOOP\_INSTALL/etc/hadoop/hadoop-env.sh} must be updated like so:
+\begin{lstlisting}
+export JAVA_HOME=/usr/lib/jvm/default-java
+\end{lstlisting}
+
+The XML configuration files for the initial configuration in the directory \textit{/usr/local/hadoop/etc/hadoop/} are shown in the appendices. The \textit{yarn-site.xml} file (appendix \nameref{appendix:yarn}) has a property \textit{yarn.resourcemanager.hostname} (in red font), which value is different for each node: It is not existent in the master node, and for the slave nodes it contains the hostname of the slave (e.g. node1 or node2). The properties in the appendices that are in red font indicate different values specific to the node.
+
+\section{Methods}
+\label{sec:methods}
+
+The Hadoop configuration is installed on a Sprint Samsung Galaxy S7 Android cell phone and Hikey 960 Android Open Source Project development board. The Galaxy S7 has four cores each running at 2.1GHz, and 4GB of RAM. The Hikey 960 has only 3GB of RAM, but is equipped with eight cores: four running at 2.3GHz and four running at 1.8GHz. Both devices have a limited amount of virtual memory: about 10GB. Block size of 64MB are chosen (see appendix \nameref{appendix:hdfs}), which is half the default block size of 128MB. It is important to note here that the block size of the cluster should be chosen based on the job at hand, and this block size will remain constant in order to measure network IO and run-time performance of other cluster configurations.
+
+The number of V-cores set up (see appendix \nameref{appendix:yarn}) are exactly one less than the number of cores at each node. The initial amount of memory allocated to the resource manager (see \textit{yarn.nodemanager.resource.memory-mb} and \textit{yarn.scheduler.maximum-allocation-mb} in appendix \nameref{appendix:yarn}) is 1.5GB for both slave nodes, and the minimum allocation for each container is set to be 512MB. Also, the virtual memory check is manually turned off. For each node, the mapper memory allocation is initially set to 1GB, and the reducer memory allocation is initially set to 1.5GB (see appendix \nameref{appendix:mapred}).
+
+This configuration is first benchmarked as a reference for later optimizations. After measuring the network IO throughput using TestDFSIO (see section \ref{sec:TestDFSIO}) and the run-time of sorting random data using Terasort (see section \ref{sec:Terasort}), Mapreduce intermediate compression is turned on (see section \ref{sec:results_compressed}) and compared to the initial configuration, and then the sort buffer size is increased (see section \ref{sec:results_spill}) and compared to the initial configuration. Section \ref{sec:known_issues} discusses issues found in the cluster and solutions if there are any, and section \ref{sec:conclusion} discusses the findings.
+
+\subsection{TestDFSIO}
+\label{sec:TestDFSIO}
+
+TestDFSIO is a distributed IO benchmark tool that is used to test the network configuration. There are two calls: First to test the write throughput, and second to test the read throughput. The output measures total throughput and average throughput per task. The dataset chosen for this benchmark is 1GB in various file sizes and number of files. Sample write and read benchmark calls for two 512MB files are listed, respectfully, below:
+
+\begin{lstlisting}[language=bash, deletekeywords={local, read}, otherkeywords={$}]
+$ hadoop jar /usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-2.7.5-tests.jar TestDFSIO -write -nrFiles 2 -fileSize 512MB
+$ hadoop jar /usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-2.7.5-tests.jar TestDFSIO -read -nrFiles 2 -fileSize 512MB
+\end{lstlisting}
+
+The results of the TestDFSIO benchmark writing and reading 1GB of data are shown below in Figures \ref{fig:TestDFSIO_write_1GB} and \ref{fig:TestDFSIO_read_1GB}, respectfully.
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Number of Files	& Throughput & Average IO Rate & Std. Deviation \\
+	1     			& 48.23 & 48.23 & 0 \\
+	2     			& 20.82 & 34.09 & 10.56 \\
+	4     			& 29.98 & 31.3 & 6.41 \\
+	8     			& 29.38 & 30.66 & 6.07 \\
+}\writedata
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[ylabel=MB/s, xlabel=Number of Files, ybar, symbolic x coords={1,2,4,8}, xtick=data, width=0.7\columnwidth]
+			\addplot table[x=Number of Files,y=Throughput]{\writedata};
+			\addplot table[x=Number of Files,y=Average IO Rate]{\writedata};
+			\legend{Throughput,Average IO Rate}
+		\end{axis}
+	\end{tikzpicture}
+	\caption{TestDFSIO Write on 1GB of Data}
+	\label{fig:TestDFSIO_write_1GB}
+\end{figure}
+
+The throughput and IO rate results are based on individual map tasks, and not the overall throughput of the cluster. The number of files determines the number of map tasks that exist. As one might expect, the throughput for one file is much higher than when split into multiple files. Many small files tend to slow the cluster down, and thus the lowest throughput is splitting the data into 128MB files, and is not very practical in a real-world scenario. The standard deviation for the write tests ranges from 6.07MB/s in 8 files to 10.56MB/s in 2 files (the test on a single file shows a standard deviation of zero).
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Number of Files	& Throughput & Average IO Rate & Std. Deviation \\
+	1     			& 134.61 & 134.61 & 0 \\
+	2     			& 75.06 & 83.73 & 26.95 \\
+	4     			& 77.15 & 81.96 & 19.87 \\
+	8     			& 65.19 & 69.71 & 17.59 \\
+}\readdata
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[ylabel=MB/s, xlabel=Number of Files, ybar, symbolic x coords={1,2,4,8}, xtick=data, width=0.7\columnwidth]
+			\addplot table[x=Number of Files,y=Throughput]{\readdata};
+			\addplot table[x=Number of Files,y=Average IO Rate]{\readdata};
+			\legend{Throughput,Average IO Rate}
+		\end{axis}
+	\end{tikzpicture}
+	\caption{TestDFSIO Read on 1GB of Data}
+	\label{fig:TestDFSIO_read_1GB}
+\end{figure}
+
+The IO throughput in the this local network shown here seems to be efficient for this project. However, the standard deviation of the read tests ranges from 17.59MB/s in 8 files to 26.95MB/s in 2 files (and a standard deviation of zero for one file), which seems to be a little high. This indicates that there might be room for a performance increase (likely one of the cluster nodes is exhibiting performance related issues).
+
+\subsection{Terasort}
+\label{sec:Terasort}
+
+Terasort is a popular benchmark that measures the amount of time to sort randomly distributed data using MapReduce. It is commonly used to measure MapReduce performance on an Apache Hadoop cluster. In this study with two mobile slave nodes, 128MB to 1GB of randomly distributed data is generated, and the calls to Terasort are timed and plotted.
+
+First, the random data must be generated with a call to Teragen. A sample call to Teragen that generates 1GB of data is shown below.
+
+\begin{lstlisting}[language=bash, otherkeywords={$}]
+$ hadoop jar hadoop-mapreduce-examples-2.7.5.jar teragen 10000000 <output-dir>
+\end{lstlisting}
+
+The target focus here is not the generation of the dataset, however, Teragen generates a specified amount of 100-byte rows of data. Thus, this one-time invocation of Teragen command generates 1GB of data to be used with multiple invocations of Terasort for the same dataset. The Terasort benchmark is performed with a simple time command:
+
+\begin{lstlisting}[language=bash, otherkeywords={$}]
+$ time hadoop jar hadoop-mapreduce-examples-2.7.5.jar terasort <input-dir> <output-dir>
+\end{lstlisting}
+
+The run-times of sorting 128MB to 1GB of data is shown below in Figure \ref{fig:Terasort}.
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Data Size	& Run Time \\
+	128     	& 101.970 \\
+	256     	& 266.804 \\
+	512     	& 314.794 \\
+	1024     	& 573.995 \\
+}\sortdata
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}
+	\begin{axis}[ylabel=Time (sec), xlabel=Size of Dataset (MB), ybar, symbolic x coords={128,256,512,1024}, xtick=data, width=0.7\columnwidth]
+	\addplot table[x=Data Size,y=Run Time]{\sortdata};
+	\end{axis}
+	\end{tikzpicture}
+	\caption{Run Times of Terasort}
+	\label{fig:Terasort}
+\end{figure}
+
+These results show that this cluster is feasible for running a Hadoop Mapreduce job on a small set of data, but quickly reaches an unacceptable performance level on larger-scaled jobs (about ten minutes for sorting one gigabyte of data). Adding more nodes would most likely improve the accuracy of measurements and performance of this cluster, and future work should definitely take this into account.
+
+In the next section, these benchmarks are re-executed with slight changes in configuration, and compared to this initial configuration. The cluster properties that are changed include intermediate value compression and increased sort buffer memory. There are many configuration values that should be observed to find an optimal configuration, and not all values are checked in this paper. The properties added for performance comparisons are not reflected in the appendices.
+
+\section{Results}
+\label{sec:results}
+
+The initial configuration benchmarks show that this Hadoop Cluster will work on small jobs, but also does not scale to large datasets with the limited number of nodes. The goal here is to tune the configuration to yield better results for this three node distributed cluster. The first attempt is a compression of intermediate Mapreduce values in a hope that the network performance per map task from TestDFSIO increases.
+
+\subsection{Compress Intermediate Values}
+\label{sec:results_compressed}
+The first configuration optimization attempt is to compress the intermediate map data via setting the  \textit{mapreduce.output.fileoutputformat.compress} to true in the \textit{mapred-site.xml} file. The compression codec is left to the default codec. 
+
+The TestDFSIO is run first on this configuration. The results are presented in Figures \ref{fig:TestDFSIO_write_Compressed} and \ref{fig:TestDFSIO_read_Compressed}, respectfully, below.
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Number of Files	& Throughput & Average IO Rate & Std. Deviation \\
+	1     			& 54.07 & 54.07 & 0.01 \\
+	2     			& 37.47 & 39.87 & 9.79 \\
+	4     			& 35.69 & 36.2 & 4.34 \\
+	8     			& 31.96 & 34.76 & 9.31 \\
+}\writedataCompressed
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}
+	\begin{axis}[ylabel=MB/s, xlabel=Number of Files, ybar, symbolic x coords={1,2,4,8}, xtick=data, width=0.7\columnwidth]
+	\addplot table[x=Number of Files,y=Throughput]{\writedataCompressed};
+	\addplot table[x=Number of Files,y=Average IO Rate]{\writedataCompressed};
+	\legend{Throughput,Average IO Rate}
+	\end{axis}
+	\end{tikzpicture}
+	\caption{TestDFSIO Write on 1GB of Data with Intermediate Compression}
+	\label{fig:TestDFSIO_write_Compressed}
+\end{figure}
+
+The standard deviation for the write tests ranges from 4.34MB/s in 4 files to 9.79MB/s in 2 files (with a standard deviation of 0.01MB/s for 1 file). The write measurements here are about 5MB/s faster than before, with an exception to the throughput for 2 files, which is about 17MB/s faster. This seems as though it might have improved the clusters' writing performance.
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Number of Files	& Throughput & Average IO Rate & Std. Deviation \\
+	1     			& 129.23 & 129.23 & 0.03 \\
+	2     			& 54.11 & 77.68 & 42.79 \\
+	4     			& 82.75 & 94.53 & 33.31 \\
+	8     			& 2.18 & 58.77 & 57.22 \\
+}\readdataCompressed
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}
+	\begin{axis}[ylabel=MB/s, xlabel=Number of Files, ybar, symbolic x coords={1,2,4,8}, xtick=data, width=0.7\columnwidth]
+	\addplot table[x=Number of Files,y=Throughput]{\readdataCompressed};
+	\addplot table[x=Number of Files,y=Average IO Rate]{\readdataCompressed};
+	\legend{Throughput,Average IO Rate}
+	\end{axis}
+	\end{tikzpicture}
+	\caption{TestDFSIO Read on 1GB of Data with Intermediate Compression}
+	\label{fig:TestDFSIO_read_Compressed}
+\end{figure}
+
+The reading test was even more inconclusive this time. The standard deviation for the read tests ranges from 33.31MB/s in 4 files to 57.22MB/s in 8 files (with a 0.03MB/s standard deviation for 1 file). The throughput is dramatically low for eight 128MB files (2.18MB/s), most likely because of a bottleneck in the network. The read throughput and IO rate visually seems to have increased, but these results are inconclusive. There may be instability within this configuration on one of the nodes causing performance issues here.
+
+Terasort was ran with this configuration to test for significant performance increases, as well. These results are shown in Figure \ref{fig:TerasortCompressed} below.
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Data Size	& Run Time \\
+	128     	& 112.443 \\
+	256     	& 157.395 \\
+	512     	& 391.903 \\
+	1024     	& 741.284 \\
+}\sortdataCompressed
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}
+	\begin{axis}[ylabel=Time (sec), xlabel=Size of Dataset (MB), ybar, symbolic x coords={128,256,512,1024}, xtick=data, width=0.7\columnwidth]
+	\addplot table[x=Data Size,y=Run Time]{\sortdataCompressed};
+	\end{axis}
+	\end{tikzpicture}
+	\caption{Run Times of Terasort with Compressed Intermediate Values}
+	\label{fig:TerasortCompressed}
+\end{figure}
+
+The same initial datasets are used for this configuration for comparison. There seemed to be a significant performance increase in the data size of 256MB (about 109 seconds faster), but also a significant performance decrease in the data size of 1GB (about 167 seconds slower). Larger jobs may call for compression, but for this job size, it seems that the compression is not necessary. It also seems here that these results would likely be more conclusive if tested on a larger cluster (with more mobile slave nodes) and on a larger data set.
+
+In the next section, the spill buffer memory is increased and the Terasort benchmark performed.
+
+\subsection{Increased Buffer Space}
+\label{sec:results_spill}
+
+Mapreduce uses a circular memory buffer to hold the intermediate map results in memory. When this buffer reaches a certain threshold, it will spill to disk. Too many files spilled to disk can hinder performance. The total amount of buffer memory (\textit{mapreduce.task.io.sort.mb} in \textit{mapred-site.xml}) to use while sorting files is 100MB by default. This value is changed to 500MB for this benchmark, and the \textit{mapreduce.map.sort.spill.percent} configuration variable (in \textit{mapred-site.xml}) is set to 1.0 (default is 0.8), which will make use of the complete buffer space (instead of only eighty percent before spilling to disk). The JVM heap sizes for map and reduce tasks are adjusted to 80 percent of the maximum size of the map and reduce tasks. The intermediate compression is also removed for this benchmark. The expected result is that the run-time of Terasort should decrease, with less data being spilled to disk. The TestDFSIO benchmark is not shown, since there were not enough spilled records to justify.
+
+
+%The TestDFSIO is run first on this configuration, and the results are presented in Figures \ref{fig:TestDFSIO_write_Spill} and \ref{fig:TestDFSIO_read_Spill}, respectfully, below.
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Number of Files	& Throughput & Average IO Rate & Std. Deviation \\
+	1     			& 31.94 & 31.94 & 0 \\
+	2     			& 36.22 & 38.89 & 10.19 \\
+	4     			& 36.28 & 39.78 & 12.81 \\
+	8     			& 31.48 & 34.3 & 9.73 \\
+}\writedataSpill
+
+%\begin{figure}[H]
+%	\centering
+%	\begin{tikzpicture}
+%	\begin{axis}[ylabel=MB/s, xlabel=Number of Files, ybar, symbolic x coords={1,2,4,8}, xtick=data]
+%	\addplot table[x=Number of Files,y=Throughput]{\writedataSpill};
+%	\addplot table[x=Number of Files,y=Average IO Rate]{\writedataSpill};
+%	\legend{Throughput,Average IO Rate}
+%	\end{axis}
+%	\end{tikzpicture}
+%	\caption{TestDFSIO Write on 1GB of Data with Decreased Spill to Disk}
+%	\label{fig:TestDFSIO_write_Spill}
+%\end{figure}
+
+%The write speed stays around the 30 to 40 MB/s range, consistent with the previous two runs of this benchmark, except for the execution on one 1 GB file, which seems to be anomalously and significantly lower than the previous two runs. The standard deviation for the these write tests ranges from 9.73MB/s in 8 files to 12.81MB/s in 4 files (with a standard deviation of zero for 1 file).
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Number of Files	& Throughput & Average IO Rate & Std. Deviation \\
+	1     			& 45.12 & 45.12 & 0 \\
+	2     			& 82.27 & 92.28 & 30.39 \\
+	4     			& 67.83 & 85.39 & 38.59 \\
+	8     			& 70.86 & 83.86 & 33.12 \\
+}\readdataSpill
+
+%\begin{figure}[H]
+%	\centering
+%	\begin{tikzpicture}
+%	\begin{axis}[ylabel=MB/s, xlabel=Number of Files, ybar, symbolic x coords={1,2,4,8}, xtick=data]
+%	\addplot table[x=Number of Files,y=Throughput]{\readdataSpill};
+%	\addplot table[x=Number of Files,y=Average IO Rate]{\readdataSpill};
+%	\legend{Throughput,Average IO Rate}
+%	\end{axis}
+%	\end{tikzpicture}
+%	\caption{TestDFSIO Read on 1GB of Data with Decreased Spill to Disk}
+%	\label{fig:TestDFSIO_read_Spill}
+%\end{figure}
+
+%The standard deviations for these are large, and there is no significant difference between these runs and the previous two, except for the execution on one file, which like the write test, seemed to be different and lower than the previous runs. The standard deviation for the these read tests ranges from 30.39MB/s in 2 files to 38.59MB/s in 4 files (with a zero standard deviation for 1 file).
+
+With the initial configuration, a call to Terasort for 1GB of data spills 23355441 records (Terasort on 512MB of data spills 10000000 records). After an increase in the buffer size, the number of spilled records for 1GB of data decreases to 20000000. Contradictory to the original hypothesis, however, it was observed that this number did not change for the 512MB and below sets of data. This indicates that the performance will likely increase for larger datasets, but not for the smaller ones. Terasort was ran with this configuration to test for significant performance increases in run-time. These results are shown in Figure \ref{fig:TerasortSpill} below.
+
+\pgfplotstableread[row sep=\\,col sep=&]{
+	Data Size	& Run Time \\
+	128     	& 126.798 \\
+	256     	& 208.059 \\
+	512     	& 339.819 \\
+	1024     	& 584.865 \\
+}\sortdataSpill
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}
+	\begin{axis}[ylabel=Time (sec), xlabel=Size of Dataset (MB), ybar, symbolic x coords={128,256,512,1024}, xtick=data, width=0.7\columnwidth]
+	\addplot table[x=Data Size,y=Run Time]{\sortdataSpill};
+	\end{axis}
+	\end{tikzpicture}
+	\caption{Run Times of Terasort with Increased Buffer Space}
+	\label{fig:TerasortSpill}
+\end{figure}
+
+There does not seem to be any significant decrease in run-time for Terasort on this cluster with an increase of buffer space. In fact, it even seems comparable to the initial configuration benchmark results. This is probably due to the size of the cluster, which seems to be too small to test for significant differences in these configurations. 
+
+\subsection{Known Issues}
+\label{sec:known_issues}
+A major issue in the first implementations of the cluster comes from a known bug in the procps package in the Xenial release of Ubuntu. This bug was unclear to the authors at first, and caused the slave nodes to crash randomly while the cluster is running. Upon investigating, it was found that, when the nodemanager called kill with a negative argument, there was incorrect parsing that lead to call sys\_kill(-1), which killed all processes in the system and caused a system restart. This bug is reported in \cite{Bug}. The fix to this issue involves compiling an older version of the procps package and installing the older version kill system call. This bug is particularly annoying, because the Linux over Android software re-installs the faulty kill command each time it is initialized.
+
+Another known issue is that Linux on Android is sometimes unstable when installed in the free space partition of the device. It is recommended to partition an external level 10 micro-sdcard and install the Linux distribution on the partitioned storage device. However, fast external flash memory was not available at the time, so the Linux image was installed into a folder in the free memory of the device. No known issues came from this installation, aside from an occasional crash when attempting to stop and unmount the Linux container from the Android device. This has been reported in \cite{LinuxDeploy}.
+
+Finally, the tests were ran in a matter of three weeks, which varied on time of day and internet traffic. The entire cluster is on a single local area network, and the network performance seemed to be a great obstacle when benchmarking the cluster. There was great effort expended to minimize the amount of traffic on the network for the best performance measurements when executing the benchmarks, but sometimes it seemed as thought the network was still a bottleneck in some cases (See the read throughput rating in Section \ref{sec:results_compressed} on Figure \ref{fig:TestDFSIO_read_Compressed})
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+With the increasing availability of Android operating systems and mobile devices, and with the increasing memory and speed of these devices, forming a distributed cluster for big data processing seems to be becoming a feasible project. A Linux over Android Hadoop Mapreduce cluster installation is shown in a reproducible manner, with known issues about the cluster discussed. The cluster is configured, successfully executed, and benchmarked multiple times with minor configuration differences in an attempt to optimize the performance of the cluster. Unfortunately, there were a limited number of nodes in the cluster due to limited resources, and therefore most of the tests were inconclusive. It is shown, however, that it is likely that intermediate compression of Mapreduce results increases the average writing throughput and IO rate per map task (see section \ref{sec:results_compressed}). Also, there is an observed decrease in spilled records for the Terasort benchmark on the dataset of 1GB from the map tasks with the buffer space increased (see section \ref{sec:results_spill}), which indicates an increase in performance for the cluster on larger jobs. There were no instances of failed tasks in any of the benchmarks that were executed.
+
+\bibliographystyle{ieeetr}
+\bibliography{bib.bib}{}
+\textbf{}
+
+\appendix
+\section*{A} \label{appendix:core}
+The \textit{/usr/local/hadoop/etc/hadoop/core-site.xml} file is updated like so on each node:
+\begin{lstlisting}[language=xml]
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://node-master:9000</value>
+  </property>
+</configuration>
+\end{lstlisting}
+
+\section*{B} \label{appendix:hdfs}
+The \textit{/usr/local/hadoop/etc/hadoop/hdfs-site.xml} file is updated like so on each machine:
+\begin{lstlisting}[language=xml]
+<configuration>
+  <property>
+    <name>dfs.replication</name>
+    <value>1</value>
+  </property>
+  <property>
+    <name>dfs.namenode.name.dir</name>
+    <value>/usr/local/hadoop/dfs/nameNode</value>
+  </property>
+  <property>
+    <name>dfs.datanode.data.dir</name>
+    <value>/usr/local/hadoop/dfs/dataNode</value>
+  </property>
+  <property>
+    <name>dfs.blocksize</name>
+    <value>67108864</value>
+  </property>
+</configuration>
+\end{lstlisting}
+
+\section*{C} \label{appendix:mapred}
+The \textit{/usr/local/hadoop/etc/hadoop/mapred-site.xml} file is updated like so on each machine:
+\begin{lstlisting}[language=xml]
+<configuration>
+  <property>
+    <name>mapreduce.framework.name</name>
+    <value>yarn</value>
+  </property>
+  <property>
+    <name>yarn.app.mapreduce.am.resource.mb</name>
+    <value>512</value>
+  </property>
+  <property>
+    <name>mapreduce.map.memory.mb</name>
+    <value>1024</value>
+  </property>
+  <property>
+    <name>mapreduce.reduce.memory.mb</name>
+    <value>1536</value>
+  </property>
+  <property>
+    <name>mapred.job.tracker</name>
+    <value>node-master:9001</value>
+  </property>
+</configuration>
+\end{lstlisting}
+
+\section*{D} \label{appendix:yarn}
+The \textit{/usr/local/hadoop/etc/hadoop/yarn-site.xml} file is updated like so on each machine (the red text is specific to the node; \textit{yarn.nodemanager.hostname} property is nonexistent on the master node configuration):
+\begin{lstlisting}[language=xml]
+<configuration>
+  <property>
+    <name>yarn.nodemanager.aux-services</name>
+    <value>mapreduce_shuffle</value>
+  </property>
+  <property>
+    <name>yarn.acl.enable</name>
+    <value>0</value>
+  </property>
+  <property>
+    <name>yarn.resourcemanager.hostname</name>
+    <value>node-master</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.hostname</name>                  
+    <value>(*@ \textcolor{red}{slave-node-hostname} @*)</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.resource.cpu-vcores</name>
+    <value>(*@ \textcolor{red}{3} @*)</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.resource.memory-mb</name>
+    <value>1536</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.maximum-allocation-mb</name>
+    <value>1536</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.minimum-allocation-mb</name>
+    <value>512</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.disk-health-checker.max-disk-utilization-per-disk-percentage</name>
+    <value>98.5</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.vmem-check-enabled</name>
+    <value>false</value>
+  </property>
+</configuration>
+\end{lstlisting}
+
+\end{document}
+
